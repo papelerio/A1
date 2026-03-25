@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador 18 Copias - Margen de Seguridad</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-ui: #2c3e50;
+            --sheet-w: 216mm;
+            --sheet-h: 279mm;
+            --safe-margin: 5mm; /* Margen para que la impresora no recorte */
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-ui); margin: 0; color: white; display: flex; flex-direction: column; align-items: center; }
+        
+        .toolbar {
+            position: fixed; top: 0; width: 100%; background: #1a252f;
+            padding: 15px; display: flex; gap: 12px; justify-content: center;
+            z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        button, input, select { padding: 10px 14px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+
+        #viewport { margin-top: 100px; padding: 20px; }
+
+        /* EL ÁREA DE LA HOJA */
+        #printable-area {
+            width: var(--sheet-w);
+            height: var(--sheet-h);
+            background: white;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(6, 1fr);
+            box-sizing: border-box;
+            /* SEPARACIÓN LATERAL PARA EVITAR EL RECORTE DE LA IMPRESORA */
+            padding-left: var(--safe-margin);
+            padding-right: var(--safe-margin);
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        .cell {
+            border: 0.1mm solid #f0f0f0; /* Guía de corte tenue */
+            display: flex; justify-content: center; align-items: center;
+            overflow: hidden; position: relative;
+            background: white;
+        }
+
+        .cell img { pointer-events: none; transition: 0.1s; }
+        .img-fit { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .img-stretch { width: 100% !important; height: 100% !important; object-fit: fill; }
+
+        @media print {
+            .toolbar { display: none; }
+            body { background: white; }
+            #viewport { margin: 0; padding: 0; }
+            #printable-area { box-shadow: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <input type="file" id="upload" accept="image/*" class="btn-primary">
+        <button id="btnStretch" class="btn-primary">Original</button>
+        <button id="btnRotate" class="btn-primary">Rotar 90°</button>
+        <select id="paperSize">
+            <option value="letter">Carta (Letter)</option>
+            <option value="legal">Oficio (Legal)</option>
+        </select>
+        <button id="btnPDF" class="btn-success">💾 Descargar PDF Acoplado</button>
+    </div>
+
+    <div id="viewport">
+        <div id="printable-area">
+            </div>
+    </div>
+
+    <script>
+        const { jsPDF } = window.jspdf;
+        const grid = document.getElementById('printable-area');
+        const upload = document.getElementById('upload');
+        const paperSize = document.getElementById('paperSize');
+        const btnStretch = document.getElementById('btnStretch');
+        const btnRotate = document.getElementById('btnRotate');
+        const btnPDF = document.getElementById('btnPDF');
+        
+        let isStretched = false;
+        let rotation = 0;
+        let currentImgSrc = "";
+
+        for(let i=0; i<18; i++) {
+            const div = document.createElement('div');
+            div.className = 'cell';
+            grid.appendChild(div);
+        }
+
+        paperSize.onchange = () => {
+            const isLegal = paperSize.value === 'legal';
+            document.documentElement.style.setProperty('--sheet-h', isLegal ? '356mm' : '279mm');
+        };
+
+        upload.onchange = (e) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                currentImgSrc = event.target.result;
+                updateUI();
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        };
+
+        btnStretch.onclick = () => {
+            isStretched = !isStretched;
+            btnStretch.innerText = isStretched ? "Estirado" : "Original";
+            updateUI();
+        };
+
+        btnRotate.onclick = () => {
+            rotation = (rotation + 90) % 360;
+            updateUI();
+        };
+
+        function updateUI() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.innerHTML = '';
+                if(!currentImgSrc) return;
+                const img = new Image();
+                img.src = currentImgSrc;
+                img.className = isStretched ? 'img-stretch' : 'img-fit';
+                img.style.transform = `rotate(${rotation}deg)`;
+                cell.appendChild(img);
+            });
+        }
+
+        btnPDF.onclick = async () => {
+            if(!currentImgSrc) return alert("Sube una imagen primero");
+            
+            const originalText = btnPDF.innerText;
+            btnPDF.innerText = "Capturando...";
+            btnPDF.disabled = true;
+
+            // Captura de alta fidelidad
+            const canvas = await html2canvas(grid, {
+                scale: 2, 
+                useCORS: true,
+                backgroundColor: "#ffffff"
+            });
+
+            const imgData = canvas.toDataURL('image/jpeg', 1.0);
+            const format = paperSize.value === 'legal' ? 'legal' : 'letter';
+            
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: format
+            });
+
+            const width = pdf.internal.pageSize.getWidth();
+            const height = pdf.internal.pageSize.getHeight();
+
+            // Insertamos la captura que ya trae los márgenes laterales incluidos
+            pdf.addImage(imgData, 'JPEG', 0, 0, width, height);
+            pdf.save(`copias_18_alumnos.pdf`);
+
+            btnPDF.innerText = originalText;
+            btnPDF.disabled = false;
+        };
+    </script>
+</body>
+</html>
